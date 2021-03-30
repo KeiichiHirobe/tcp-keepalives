@@ -18,9 +18,13 @@ s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
 
 s.listen(16)
 
-# tcpdump = utils.tcpdump_start(port)
+tcpdump = utils.tcpdump_start(port)
 
 c = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+send_bufsize = c.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+print("[s] send_bufsize=%d" % (send_bufsize,))
+recv_bufsize = c.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+print("[s] recv_bufsize=%d" % (recv_bufsize,))
 c.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
 c.connect(('127.0.0.1', port))
 
@@ -54,15 +58,17 @@ else:
 TCP_NOTSENT_LOWAT = 25
 
 poll_period = 15
+send_cnt = 0
 while True:
     c.setblocking(False)
     while True:
         try:
             c.send(b"A" * 16384 * 4)
+            send_cnt += 1
+            print("[s] send_cnt=%d" % (send_cnt,))
         except io.BlockingIOError:
             break
     c.setblocking(True)
-    break
 
     _, _, notsent1 = utils.socket_info(c)
     print("[s] notsent before=%d" % (notsent1,))
