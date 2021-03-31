@@ -21,8 +21,6 @@ c = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
 c.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
 c.connect(('127.0.0.1', port))
 
-x, _ = s.accept()
-
 if False:
     c.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 30*1000)
     c.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
