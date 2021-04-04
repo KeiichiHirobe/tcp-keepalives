@@ -62,19 +62,6 @@ net.ipv4.tcp_fin_timeout = 60
 
 ```
 
-
-`tcp-dead.py`
-
-Shows packets retransmissions when user sends data over dead,
-previously idle connection.
-
-`tcp-estab.py`
-
-Proves that TCP_USER_TIMEOUT doesn't affect idle socket, even if first
-transmitted packet is lost. In other words, in the case of idle socket
-TCP_USER_TIMEOUT measures delay not from last-good packet, but from
-the moments the retransmissions begun.
-
 ### `test-syn-sent.py`
 パケットがdropされるよう意図的に設定した状態で、`connect`を呼ぶ。サーバ側はパケットを全く受け取らない。
 
@@ -350,7 +337,76 @@ ESTAB      0      0      127.0.0.1:1                  127.0.0.1:59250
 また、
 
 * pollではなく、readだった場合、同様に、ETIMEDOUT(Connection timed out)
+* pollでtimeoutした後readした場合、EOFで正常に返る(戻り値0)。
 * pollでtimeoutした後writeした場合、[EPIPE] Broken pipe
+
+### `test-dead.py`
+サーバにパケットが届かないように意図的に設定した上で、クライアントが一度writeする。writeはすぐに成功で返る。
+
+200ms,400msと間隔を増やしていき、16回目の再送のタイミングとなる15分のタイミングにてETIMEDOUT。この際、FIN/RSTなにも飛ばさない。
+
+既出だが、送信バッファが空ではないので、keepaliveが起動しない。
+
+```
+.
+.
+ 00:00:03.740524 IP 127.0.0.1.38792 > 127.0.0.1.1: Flags [P.], seq 201:218, ack 1, win 512, options [nop,nop,TS val 2255159027 ecr 2255155493], length 17
+ 00:00:07.004900 IP 127.0.0.1.38792 > 127.0.0.1.1: Flags [P.], seq 201:218, ack 1, win 512, options [nop,nop,TS val 2255162292 ecr 2255155493], length 17
+ 00:00:13.720005 IP 127.0.0.1.38792 > 127.0.0.1.1: Flags [P.], seq 201:218, ack 1, win 512, options [nop,nop,TS val 2255169007 ecr 2255155493], length 17
+ 00:11:44.164634 IP 127.0.0.1.38792 > 127.0.0.1.1: Flags [P.], seq 201:218, ack 1, win 512, options [nop,nop,TS val 2255860208 ecr 2255155493], length 17
+.
+.
+ 00:13:46.916462 IP 127.0.0.1.38792 > 127.0.0.1.1: Flags [P.], seq 201:218, ack 1, win 512, options [nop,nop,TS val 2255983092 ecr 2255155493], length 17
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:38792              
+
+# 16回目の再送のタイミングでETIMEDOUT
+[ ] SO_ERROR = 110
+[ ] took: 949.426909 seconds
+
+
+```
+`test-idle.py`と同じ
+
+* pollではなく、readだった場合、同様に、ETIMEDOUT(Connection timed out)
+* pollでtimeoutした後readした場合、EOFで正常に返る(戻り値0)。
+* pollでtimeoutした後writeした場合、[EPIPE] Broken pipe
+
+TCP_USER_TIMEOUTを設定すると、きっかりその時間にETIMEDOUTする。
+再送回数であるtcp_retries2は無視される。
+
+
+### `test-dead2.py`
+
+TCP_USER_TIMEOUTを10秒に設定する。
+
+`test-dead.py`とほぼ同じだが、pollで待つのではなく、loop内でwriteを行う。write自体はブロックされずにすぐ成功する(送信バッファに余裕があるので)が、10秒経過後の最初のwriteはETIMEDOUT(Connection timed out)
+
+
+```
+.
+.
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
+ESTAB      0      136    127.0.0.1:45376              127.0.0.1:1                   timer:(on,1.719ms,5)
+
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
+ESTAB      0      153    127.0.0.1:45376              127.0.0.1:1                   timer:(on,710ms,5)
+
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
+
+Traceback (most recent call last):
+  File "test-dead2.py", line 51, in <module>
+    c.send(b"h"*17)
+TimeoutError: [Errno 110] Connection timed out
+
+```
 
 ### `test-pacing.py`
 サーバは`s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)`にて受信バッファを制限し、accept後すぐ`x.shutdown(socket.SHUT_WR)`にてFINをとばす。readしないのでバッファに溜まるのみ。
