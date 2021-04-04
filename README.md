@@ -1,14 +1,15 @@
 # tcp-keepalives
 Fork of https://github.com/cloudflare/cloudflare-blog/tree/master/2019-09-tcp-keepalives
 
-see related blog by cloudflare
+see related blogs by cloudflare
 
 * https://blog.cloudflare.com/when-tcp-sockets-refuse-to-die/
 * https://blog.cloudflare.com/syn-packet-handling-in-the-wild/
 * https://blog.cloudflare.com/this-is-strictly-a-violation-of-the-tcp-specification/
 * https://blog.cloudflare.com/the-story-of-one-latency-spike/
+* https://blog.cloudflare.com/the-curious-case-of-slow-downloads/
 
-written by me
+blog written by me
 
 * qiita
 
@@ -19,26 +20,26 @@ All of the setting of TCP below is default.
 
 ```
 # Kernel 4.19.121
-# uname -a
+$ uname -a
 Linux b441e0a92c23 4.19.121-linuxkit #1 SMP Thu Jan 21 15:36:34 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
 
 # Ubuntu 16.04.7 LTS
-# cat /etc/os-release
+$ cat /etc/os-release
 NAME="Ubuntu"
 VERSION="16.04.7 LTS (Xenial Xerus)"
 ..
 
 # SYN retry count
 # You can overwrite by setsockopt(sd, IPPROTO_TCP, TCP_SYNCNT, 6);
-# sysctl net.ipv4.tcp_syn_retries
+$ sysctl net.ipv4.tcp_syn_retries
 net.ipv4.tcp_syn_retries = 6
 
 # SYN+ACK retry count
-root@b441e0a92c23:~/go/src/etc/tcp-keepalives# sysctl net.ipv4.tcp_synack_retries
+$ sysctl net.ipv4.tcp_synack_retries
 net.ipv4.tcp_synack_retries = 5
 
 # TCP KEEPALIVE
-# sysctl -a | grep tcp_keepalive
+$ sysctl -a | grep tcp_keepalive
 # Send first keepalive probe after 7200 seconds of idleness.
 # You can overwrite by setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 7200)
 net.ipv4.tcp_keepalive_time = 7200
@@ -48,16 +49,16 @@ net.ipv4.tcp_keepalive_time = 7200
 net.ipv4.tcp_keepalive_intvl = 75
 
 # Time out after 9 failed probes.
-# You can overwrite by setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+# You can overwrite by setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 9)
 net.ipv4.tcp_keepalive_probes = 9
 
 # Data packet or  window probes is retransmitted 15 times
-# sysctl net.ipv4.tcp_retries2
+$ sysctl net.ipv4.tcp_retries2
 net.ipv4.tcp_retries2 = 15
 
 # This specifies how many seconds to wait for a final FIN packet before the socket is forcibly closed. In other words, timeout seconds from FIN-WAIT-2 to CLOSED
 # This does NOT control TIME-WAIT. Timeout from TIME-WAIT to CLOSED is 2 * MSL(Maximum Segment Lifetime), and is hard coded at kernel as 60 seconds.
-# sysctl net.ipv4.tcp_fin_timeout
+$ sysctl net.ipv4.tcp_fin_timeout
 net.ipv4.tcp_fin_timeout = 60
 
 ```
@@ -381,30 +382,50 @@ TCP_USER_TIMEOUTを設定すると、きっかりその時間にETIMEDOUTする�
 
 TCP_USER_TIMEOUTを10秒に設定する。
 
-`test-dead.py`とほぼ同じだが、pollで待つのではなく、loop内でwriteを行う。write自体はブロックされずにすぐ成功する(送信バッファに余裕があるので)が、10秒経過後の最初のwriteはETIMEDOUT(Connection timed out)
+`test-dead.py`とほぼ同じだが、pollで待つのではなく、loop内でwriteを行う。
 
+しばらくはwriteはブロックされずにすぐ成功する(送信バッファに余裕があるので)が、10秒経過後の最初のwriteはETIMEDOUT(Connection timed out)になり、そのあとは[EPIPE] Broken pipeとなる。
+
+参考までにさらにその後readするとすぐにEOFで返る。
 
 ```
 .
 .
 State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
 LISTEN     1      16     127.0.0.1:1                        *:*                  
-ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
-ESTAB      0      136    127.0.0.1:45376              127.0.0.1:1                   timer:(on,1.719ms,5)
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+ESTAB      0      119    127.0.0.1:46696              127.0.0.1:1                   timer:(on,2.727ms,5)
 
 State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
 LISTEN     1      16     127.0.0.1:1                        *:*                  
-ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
-ESTAB      0      153    127.0.0.1:45376              127.0.0.1:1                   timer:(on,710ms,5)
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+ESTAB      0      136    127.0.0.1:46696              127.0.0.1:1                   timer:(on,1.719ms,5)
 
 State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
 LISTEN     1      16     127.0.0.1:1                        *:*                  
-ESTAB      200    0      127.0.0.1:1                  127.0.0.1:45376              
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+ESTAB      0      153    127.0.0.1:46696              127.0.0.1:1                   timer:(on,713ms,5)
 
-Traceback (most recent call last):
-  File "test-dead2.py", line 51, in <module>
-    c.send(b"h"*17)
-TimeoutError: [Errno 110] Connection timed out
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+
+[Errno 110] Connection timed out
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+
+[Errno 32] Broken pipe
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696              
+
+[Errno 32] Broken pipe
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      200    0      127.0.0.1:1                  127.0.0.1:46696   
+.
+.
 
 ```
 
@@ -716,5 +737,34 @@ ConnectionResetError: [Errno 104] Connection reset by peer
 * 自分がshutdown(socket.SHUT_WR)したソケットにwriteすると、[EPIPE] Broken pipeが返る。
 * 自分がshutdown(socket.SHUT_RD)したソケットからreadすると、とくにエラーなく読める。が、受信バッファにデータがない場合、新たにデータを受信するかFINが送られるまでreadはブロックするのが通常だが、EOFで返却された。バッファにデータがある場合は普通に読める。
 * shutdown(socket.shut_RD)したソケットに相手がデータ転送してもACKを返却する。window sizeを0にて返却してデータ転送されないようにするといった制御も行われない。
-* 相手が
+* システムコールと異常にコネクションが消えるイベントが発生した時(FIN/FINACK/ACKによる安全な方法ではない場合)の関係（kernelを読んだわけではないのであくまで観測結果）
+  * read/writeにかかわらずイベント後最初に呼ばれた場合で、コネクションが消えた原因が
+    * タイムアウトの場合、ETIMEDOUT(Connection timed out)
+    * FIN -> RSTの順に受け取った場合、[EPIPE] Broken pipe
+    * RSTのみを受け取った場合、[ECONNRESET]Connection reset by peer
+  * その後のシステムコール
+    * readは0byte読んで正常終了
+    * writeは[EPIPE] Broken pipe
+* ssのLISTENのRecv-QはSYN QUEUE(SYNのみ受け取ってACKを受け取っていない)ではなく、ACCEPT QUEUE(ACKを受け取ってESTABLISHEDだがアプリケーションがacceptしていない)にある要素数である。
+
+### ssのタイムアウト種類
+* on
+  * クライアントによるSYNの再送。TCP_USER_TIMEOUT即時
+  * サーバによるSYNACKの再送。SYN-RECV状態のsocketはmini-socketと呼ばれ、アプリケーションから制御不能なため、TCP_USER_TIMEOUT設定不可能
+  * データパケットの再送。TCP_USER_TIMEOUT即時
+* keepalive
+  * tcp keepalive。TCP_USER_TIMEOUTは再送時check
+  * タイムアウト時にRSTを飛ばす
+* timewait
+  * FIN-WAIT-2のものがCLOSEDに自動で移行するまでのタイムアウト
+    * tcp_fin_timeout(デフォルト60秒)
+    * tcpの仕様に反している挙動。passive close側がCLOSE-WAITで残り続け、誤って新しいコネクションを続きであると思ってしまう可能性あり
+    * 確認する限り、ソケットを明示的にcloseしないと起動しない。shutdownではダメ。
+  * CLOSE-WAITのものがCLOSEDに自動で移行するタイムアウト
+    * いわゆる 2 * MSLで2分と言われることが多いが、linuxは固定で60秒
+* persist
+  * 受信バッファが一杯のため、window probeを再送。TCP_USER_TIMEOUTは再送時check
+  * window probeのackがないため再送。TCP_USER_TIMEOUTは再送時check
+
+上記をみればわかるが、タイムアウトの時に追加でパケットを送るのは、RSTを送るkeepaliveのみ。
 

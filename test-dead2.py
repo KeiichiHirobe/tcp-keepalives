@@ -47,12 +47,18 @@ time.sleep(1)
 utils.ss(port)
 utils.check_buffer(c)
 
-for i in range(10):
-    c.send(b"h"*17)
+for i in range(15):
+    try:
+        c.send(b"h"*17)
+    except Exception as e:
+        print(e)
     time.sleep(1)
     utils.ss(port)
 
 utils.ss(port)
+
+buf = c.recv(10)
+print("[ ] len = %d" % (len(buf),))
 
 e = c.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
 print("[ ] SO_ERROR = %s" % (e,))
