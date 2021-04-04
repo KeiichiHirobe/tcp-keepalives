@@ -68,12 +68,6 @@ net.ipv4.tcp_fin_timeout = 60
 Shows packets retransmissions when user sends data over dead,
 previously idle connection.
 
-`tcp-idle.py`
-
-Proves that TCP_USER_TIMEOUT doesn't affect idle socket, until
-retransmissions (or keepalives) keep in. Idle socket will remain idle
-even with aggressive user-timeout.
-
 `tcp-estab.py`
 
 Proves that TCP_USER_TIMEOUT doesn't affect idle socket, even if first
@@ -307,6 +301,56 @@ ESTAB      0      0      127.0.0.1:42326              127.0.0.1:1
 
 ```
 
+### `test_idle.py`
+ESTABLISHEDになってすぐにパケットが届かないように意図的に設定する。クライアントのsocketのtcpkeepaliveの設定は以下になっている。
+
+* SO_KEEPALIVE = 1 - Let's enable keepalives.
+* TCP_KEEPIDLE = 5 - Send first keepalive probe after 5 seconds of idleness.
+* TCP_KEEPINTVL = 3 - Send subsequent keepalive probes after 3 seconds.
+* TCP_KEEPCNT = 3 - Time out after three failed probes.
+
+5s/8s/11sとパケットを送り、14sにタイムアウト判定している。このとき、RSTをとばしている。
+
+timerはkeepaliveと表示されている。
+
+
+```
+ 00:00:00.000000 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [S], seq 3260833886, win 65495, options [mss 65495,sackOK,TS val 2251268188 ecr 0,nop,wscale 7], length 0
+ 00:00:00.000053 IP 127.0.0.1.1 > 127.0.0.1.59250: Flags [S.], seq 2070019716, ack 3260833887, win 65483, options [mss 65495,sackOK,TS val 2251268188 ecr 2251268188,nop,wscale 7], length 0
+ 00:00:00.000140 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [.], ack 1, win 512, options [nop,nop,TS val 2251268188 ecr 2251268188], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      0      0      127.0.0.1:1                  127.0.0.1:59250              
+ESTAB      0      0      127.0.0.1:59250              127.0.0.1:1                   timer:(keepalive,2.986ms,0)
+
+ 00:00:04.977306 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [.], ack 1, win 512, options [nop,nop,TS val 2251273199 ecr 2251268188], length 0
+ 00:00:07.984276 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [.], ack 1, win 512, options [nop,nop,TS val 2251276207 ecr 2251268188], length 0
+ 00:00:10.992395 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [.], ack 1, win 512, options [nop,nop,TS val 2251279215 ecr 2251268188], length 0
+ 00:00:14.001676 IP 127.0.0.1.59250 > 127.0.0.1.1: Flags [R.], seq 1, ack 1, win 512, options [nop,nop,TS val 2251282222 ecr 2251268188], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     1      16     127.0.0.1:1                        *:*                  
+ESTAB      0      0      127.0.0.1:1                  127.0.0.1:59250              
+
+[ ] SO_ERROR = 110
+[ ] took: 14.003819 seconds
+
+```
+
+ブログのまとめのような内容になってしまうが、注意点を列挙する。
+
+* keepaliveが起動するためには送信バッファが空である必要がある。
+* TCP_USER_TIMEOUTと同時に指定された場合について
+  * keepaliveのtimerのタイミングにて、初回でなければTCP_USER_TIMEOUTのチェックが走り、経過していたらタイムアウトさせる
+  * TCP_KEEPCNTは完全に無視される。
+
+5s/8s/11s/14sと送る場合、TCP_USER_TIMEOUT=3sであった場合には8sのタイミングでタイムウトする。
+
+5s/8s/11s/14sと送る場合、TCP_USER_TIMEOUT=10sであった場合には11sのタイミングでタイムウトする。
+
+また、
+
+* pollではなく、readだった場合、同様に、ETIMEDOUT(Connection timed out)
+* pollでtimeoutした後writeした場合、[EPIPE] Broken pipe
 
 ### `test-pacing.py`
 サーバは`s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)`にて受信バッファを制限し、accept後すぐ`x.shutdown(socket.SHUT_WR)`にてFINをとばす。readしないのでバッファに溜まるのみ。

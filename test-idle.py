@@ -20,11 +20,11 @@ c = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
 c.connect(('127.0.0.1', port))
 
 if True:
-    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 33500)
+    # c.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, 33500)
     c.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1) # seconds
-    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 11) # seconds
-    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 111)
+    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5) # seconds
+    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3) # seconds
+    c.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
 
 t0 = time.time()
 
