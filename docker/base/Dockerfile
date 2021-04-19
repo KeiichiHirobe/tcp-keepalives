@@ -1,7 +1,7 @@
 FROM ubuntu:16.04
 
-RUN apt-get update && \
-    apt-get upgrade && \
+RUN apt-get update -y && \
+    apt-get upgrade -y && \
     apt-get install --no-install-recommends -y git netcat curl ca-certificates jq wget tcpdump  iproute2 iputils-ping net-tools telnet iptables
     # apt-get clean && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
 
