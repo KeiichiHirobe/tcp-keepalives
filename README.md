@@ -11,7 +11,7 @@ see related blogs by cloudflare
 
 blog written by me
 
-* qiita
+* https://qiita.com/behiron/items/3a9e86b2e6f14e9a5e60
 
 # Testing TCP Keepalives on Linux
 
