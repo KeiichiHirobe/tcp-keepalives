@@ -732,6 +732,96 @@ ConnectionResetError: [Errno 104] Connection reset by peer
 
 ```
 
+### `test-read-noack.py`
+サーバからクライアントへのパケットを破棄することで、ACKをクライアントが受け取れないようにしても、
+サーバは普通にreadできる。
+10byteのsendを合計6回行なっているが、sendが初回の10byteとその後の30byteで個別にsendされている。
+その後のsendはそもそもflightされていない。おそらく再送タイムアウト到来前のみflight対象になっていると推定できる。
+
+本来のNagleアルゴリズムでは、
+* MSS(通常MTU1500バイト、IPヘッダ20バイト、TCPヘッダ20バイトで1460バイト)のデータを送信可能
+* 全ての送信済みデータがACKされている
+
+のどちらかを満たす必要があるが、30byteがflightされているのは何らかの最適化が行われているのだろう。
+
+```
+[x] b'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      0      127.0.0.1:46328              127.0.0.1:1                  
+ESTAB      0      0      127.0.0.1:1                  127.0.0.1:46328              
+# サーバからクライアントへのパケットを破棄するよう設定
+ 00:00:00.424837 IP 127.0.0.1.46328 > 127.0.0.1.1: Flags [P.], seq 201:211, ack 1, win 512, options [nop,nop,TS val 2811387497 ecr 2811387279], length 10
+ 00:00:00.424865 IP 127.0.0.1.1 > 127.0.0.1.46328: Flags [.], ack 211, win 511, options [nop,nop,TS val 2811387497 ecr 2811387497], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      30     127.0.0.1:46328              127.0.0.1:1                   timer:(on,197ms,0)
+ESTAB      10     0      127.0.0.1:1                  127.0.0.1:46328              
+
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      40     127.0.0.1:46328              127.0.0.1:1                   timer:(on,138ms,0)
+ESTAB      10     0      127.0.0.1:1                  127.0.0.1:46328              
+# 200ms後、10byteのsendが3つまとめて送られている
+ 00:00:00.630659 IP 127.0.0.1.46328 > 127.0.0.1.1: Flags [P.], seq 211:241, ack 1, win 512, options [nop,nop,TS val 2811387703 ecr 2811387279], length 30
+ 00:00:00.630699 IP 127.0.0.1.1 > 127.0.0.1.46328: Flags [.], ack 241, win 511, options [nop,nop,TS val 2811387703 ecr 2811387703], length 0
+ 00:00:00.840677 IP 127.0.0.1.46328 > 127.0.0.1.1: Flags [P.], seq 201:211, ack 1, win 512, options [nop,nop,TS val 2811387913 ecr 2811387279], length 10
+ 00:00:00.840733 IP 127.0.0.1.1 > 127.0.0.1.46328: Flags [.], ack 241, win 511, options [nop,nop,TS val 2811387913 ecr 2811387703,nop,nop,sack 1 {201:211}], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      50     127.0.0.1:46328              127.0.0.1:1                   timer:(on,347ms,1)
+ESTAB      40     0      127.0.0.1:1                  127.0.0.1:46328              
+
+ 00:00:01.251963 IP 127.0.0.1.46328 > 127.0.0.1.1: Flags [P.], seq 201:211, ack 1, win 512, options [nop,nop,TS val 2811388324 ecr 2811387279], length 10
+ 00:00:01.252021 IP 127.0.0.1.1 > 127.0.0.1.46328: Flags [.], ack 241, win 511, options [nop,nop,TS val 2811388324 ecr 2811387703,nop,nop,sack 1 {201:211}], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      60     127.0.0.1:46328              127.0.0.1:1                   timer:(on,148ms,2)
+ESTAB      40     0      127.0.0.1:1                  127.0.0.1:46328              
+
+delivered, acked 200
+in-flight: 40
+in queue, not in flight: 20
+# サーバはクライアントがACKを受け取れていなくてもreadできる
+[x] len=40 data=b'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh'
+# 以降、201:211 211:241が結合されて再送されている
+ 00:00:02.064894 IP 127.0.0.1.46328 > 127.0.0.1.1: Flags [P.], seq 201:241, ack 1, win 512, options [nop,nop,TS val 2811389137 ecr 2811387279], length 40
+ 00:00:02.064953 IP 127.0.0.1.1 > 127.0.0.1.46328: Flags [.], ack 241, win 512, options [nop,nop,TS val 2811389137 ecr 2811389137,nop,nop,sack 1 {201:241}], length 0
+
+```
+
+`socket.TCP_NODELAY` を指定すると、10byteずつflightされている。再送を迎えると最終的に同様にまとめられて送られている。
+
+```
+ 00:00:00.420285 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 201:211, ack 1, win 512, options [nop,nop,TS val 2812111581 ecr 2812111362], length 10
+ 00:00:00.420312 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 211, win 511, options [nop,nop,TS val 2812111581 ecr 2812111581], length 0
+ 00:00:00.421504 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 211:221, ack 1, win 512, options [nop,nop,TS val 2812111582 ecr 2812111362], length 10
+ 00:00:00.421538 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 221, win 511, options [nop,nop,TS val 2812111582 ecr 2812111582], length 0
+ 00:00:00.421619 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 221:231, ack 1, win 512, options [nop,nop,TS val 2812111582 ecr 2812111362], length 10
+ 00:00:00.421790 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 231, win 511, options [nop,nop,TS val 2812111582 ecr 2812111582], length 0
+ 00:00:00.425903 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 221:231, ack 1, win 512, options [nop,nop,TS val 2812111586 ecr 2812111362], length 10
+ 00:00:00.425931 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 231, win 511, options [nop,nop,TS val 2812111586 ecr 2812111586,nop,nop,sack 1 {221:231}], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      30     127.0.0.1:47776              127.0.0.1:1                   timer:(on,199ms,0)
+ESTAB      30     0      127.0.0.1:1                  127.0.0.1:47776              
+
+ 00:00:00.485551 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 231:241, ack 1, win 512, options [nop,nop,TS val 2812111646 ecr 2812111362], length 10
+ 00:00:00.485590 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 241, win 511, options [nop,nop,TS val 2812111646 ecr 2812111646], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      40     127.0.0.1:47776              127.0.0.1:1                   timer:(on,132ms,0)
+ESTAB      40     0      127.0.0.1:1                  127.0.0.1:47776              
+
+ 00:00:00.632425 IP 127.0.0.1.47776 > 127.0.0.1.1: Flags [P.], seq 201:211, ack 1, win 512, options [nop,nop,TS val 2812111792 ecr 2812111362], length 10
+ 00:00:00.632516 IP 127.0.0.1.1 > 127.0.0.1.47776: Flags [.], ack 241, win 511, options [nop,nop,TS val 2812111793 ecr 2812111646,nop,nop,sack 1 {201:211}], length 0
+State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              
+LISTEN     0      16     127.0.0.1:1                        *:*                  
+ESTAB      0      50     127.0.0.1:47776              127.0.0.1:1                   timer:(on,133ms,1)
+ESTAB      40     0      127.0.0.1:1                  127.0.0.1:47776              
+
+```
+
 ### その他
 * 自分がcloseしたソケットにread/writeすると[EBADF] Bad file descriptorが返る。
 * 自分がshutdown(socket.SHUT_WR)したソケットにwriteすると、[EPIPE] Broken pipeが返る。
