@@ -3,6 +3,7 @@ services:
  app1:
   container_name: api.local
   image: local-develop-environment
+  platform: linux/x86_64
   ports:
     - "8080:8080"
   volumes:
@@ -21,6 +22,7 @@ services:
  app2:
   container_name: api2.local
   image: local-develop-environment
+  platform: linux/x86_64
   ports:
     - "8081:8081"
   volumes:

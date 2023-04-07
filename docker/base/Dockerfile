@@ -1,8 +1,8 @@
-FROM ubuntu:16.04
+FROM --platform=linux/x86_64 ubuntu:16.04
 
 RUN apt-get update -y && \
     apt-get upgrade -y && \
-    apt-get install --no-install-recommends -y git netcat curl ca-certificates jq wget tcpdump  iproute2 iputils-ping net-tools telnet iptables strace man manpages-dev
+    apt-get install --no-install-recommends -y git netcat curl ca-certificates jq wget tcpdump  iproute2 iputils-ping net-tools telnet iptables strace man manpages-dev build-essential
     # apt-get clean && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
 
 # TCP_USER_TIMEOUTを利用する場合はpython3.6以上が必要なので手動でinstallする必要あり
